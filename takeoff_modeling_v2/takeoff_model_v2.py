@@ -14,6 +14,7 @@ from copy import deepcopy
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import math
 
 
 RANDOM_SEED = 42
@@ -39,6 +40,7 @@ class MadeUpParameters(BaseModel):
         2027: 1e28,
         2028: 9e28,
         2031: 2e30,
+        2035: 5e31,
     }
 
     # Experiment design
@@ -91,15 +93,15 @@ class MadeUpParameters(BaseModel):
         1e28: 0.95,
         1e30: 0.85,
         3e31: 0.75,
-        1e33: 0.55,
-        1e35: 0.4,
-        1e50: 0.4,
+        1e33: 0.65,
+        1e35: 0.5,
+        1e50: 0.5,
         # 1e26: 1,
     }
 
     # Wall clock runtime with default monitoring
-    runtime_default_weeks_lognormal_mu: float = 1
-    runtime_default_weeks_lognormal_sigma: float = 0.7
+    runtime_default_weeks_lognormal_mu: float = 1.5
+    runtime_default_weeks_lognormal_sigma: float = 0.9
     runtime_hardness_correlation_level: float = 0.6  # lower is more correlated
 
     # Experiment results analysis
@@ -112,52 +114,65 @@ class MadeUpParameters(BaseModel):
         1e27: 1.05,
         1e28: 2,
         1e30: 4,
-        3e31: 10,
-        1e33: 50,
-        1e35: 250,
+        3e31: 7,
+        1e33: 20,
+        1e35: 80,
     }
 
     # Research taste. TODO make real. Make a taste visualization thing
-    T_initial: float = 0.1
+    T_initial: float = 50
     research_taste_automation_schedule: Dict[float, float] = {
         9e25: T_initial,
-        1e27: 0.1,
-        1e28: 0.11,
-        1e30: 0.2,
-        3e31: 0.3,
-        1e33: 0.4,
-        1e35: 0.5,
-        9e35: 1.2,
+        1e27: 51,
+        1e28: 53,
+        1e30: 65,
+        3e31: 80,
+        1e33: 120,
+        1e35: 150,
+        1e40: 160,
         # 10e25: T_initial,
+    }
+
+    # How many research teams and experimets per team
+    RESEARCH_TEAMS: int = 10
+
+    # alg efficiency -> max experiments per team
+    max_experiments_per_team_automation_schedule: Dict[float, float] = {
+        1: 1,
+        1e10: 1,
     }
 
     # Alg efficieny multiplier distribution. Got from playing in Squiggle
     # ae_beta_a: float = 1
     # ae_beta_b: float = 20
     # ae_beta_exp: float = 2
-    ae_beta_a: float = 0.01
-    ae_beta_b: float = 0.7
-    ae_beta_exp: float = 2
+    # ae_beta_a: float = 0.01
+    # ae_beta_b: float = 0.7
+    # ae_beta_exp: float = 2
+    ae_lognormal_mu: float = -6.4
+    ae_lognormal_sigma: float = 1.7
 
-    N_EXPERIMENTS: int = 2000
-
-    # How many simluations to run
-    N_SIMS: int = 1
+    N_EXPERIMENTS: int = 5000
 
     # Stop simulation when there are X experiments left, or have gotten past year Y, or effective compute level Z
     STOP_EXPERIMENTS: int = 0
-    STOP_YEAR: float = 3000
+    STOP_YEAR: float = 2040
     STOP_EC: float = 1e50
+    STOP_AE: float = 1e10
 
     # printing stuff
     PRINT_TIMING: bool = False
     PRINT_EXPERIMENT_INFO: bool = False
-    PRINT_TASTE_INFO: bool = False
+    PRINT_TASTE_INFO: bool = True
     PLOT_CORRELATION: bool = False
+    PRINT_CHECK_TASTE: bool = False
 
     # How often to do experiment prioritization
     PRIORITIZATION_CADENCE: int = 50
     DO_AUTOMATION: bool = True
+
+    # How many simluations to run
+    N_SIMS: int = 1
 
 
 class AISpeedupMultipliers(BaseModel):
@@ -293,11 +308,15 @@ def weighted_sample_without_replacement(population, weights, k):
         selections.append(population[i])
 
         # Update weights and cumulative weights to exclude the selected item
-        cumulative_weights[i:] = [w - weights[i] for w in cumulative_weights[i:]]
-        if i + 1 < len(cumulative_weights):
-            cumulative_weights.pop(i)
+        # cumulative_weights[i:] = [w - weights[i] for w in cumulative_weights[i:]]
+        # if i + 1 < len(cumulative_weights):
+        #     cumulative_weights.pop(i)
+
         weights.pop(i)
         population.pop(i)
+        cumulative_weights = list(
+            itertools.accumulate(weights)
+        )  # Recalculate cumulative weights
 
     return selections
 
@@ -491,9 +510,11 @@ class WorldState(BaseModel):
     ai_speedup_multipliers: AISpeedupMultipliers
     algorithmic_efficiency: float = 1
     physical_compute: float = None
+    max_experiments: float = 10
     prospective_experiments: List[Experiment] = Field(default_factory=list)
     next_experiments: List[Experiment] = Field(default_factory=list)
     in_progress_experiments: List[Experiment] = Field(default_factory=list)
+    research_team_next_free_years: List[float] = Field(default_factory=list)
     # todo experiment monitoring
 
     def __init__(
@@ -510,6 +531,14 @@ class WorldState(BaseModel):
             ),
             made_up_parameters=made_up_parameters,
             ai_speedup_multipliers=ai_speedup_multipliers,
+            max_experiments=log_linear_interpolation(
+                1, made_up_parameters.max_experiments_per_team_automation_schedule
+            )
+            * made_up_parameters.RESEARCH_TEAMS,
+            research_team_next_free_years=[
+                made_up_parameters.initial_year
+                for _ in range(made_up_parameters.RESEARCH_TEAMS)
+            ],
             **data,
         )
 
@@ -519,28 +548,39 @@ class WorldState(BaseModel):
         ai_speedup_multipliers: AISpeedupMultipliers,
     ):
         # Generate N_EXPERIMENTS beta-distributed random variates
-        random_variates = beta.rvs(
-            made_up_parameters.ae_beta_a,
-            made_up_parameters.ae_beta_b,
-            size=made_up_parameters.N_EXPERIMENTS,
-        )
+        # random_variates = beta.rvs(
+        #     made_up_parameters.ae_beta_a,
+        #     made_up_parameters.ae_beta_b,
+        #     size=made_up_parameters.N_EXPERIMENTS,
+        # )
 
-        # Increment by 1 and ensure each value is at least 1, then raise to the exponent
+        # # Increment by 1 and ensure each value is at least 1, then raise to the exponent
+        # algorithmic_efficiency_multipliers = (
+        #     np.maximum(1, random_variates + 1) ** made_up_parameters.ae_beta_exp
+        # )
+
+        # # Convert to list if necessary
+        # algorithmic_efficiency_multipliers_list = (
+        #     algorithmic_efficiency_multipliers.tolist()
+        # )
+
         algorithmic_efficiency_multipliers = (
-            np.maximum(1, random_variates + 1) ** made_up_parameters.ae_beta_exp
-        )
-
-        # Convert to list if necessary
-        algorithmic_efficiency_multipliers_list = (
-            algorithmic_efficiency_multipliers.tolist()
+            np.random.lognormal(
+                mean=made_up_parameters.ae_lognormal_mu,
+                sigma=made_up_parameters.ae_lognormal_sigma,
+                size=made_up_parameters.N_EXPERIMENTS,
+            )
+            + 1
         )
 
         runtime_default_weeks_values = np.random.lognormal(
-            mean=1, sigma=0.7, size=made_up_parameters.N_EXPERIMENTS
+            mean=made_up_parameters.runtime_default_weeks_lognormal_mu,
+            sigma=made_up_parameters.runtime_default_weeks_lognormal_sigma,
+            size=made_up_parameters.N_EXPERIMENTS,
         )
 
         # Convert lists to numpy arrays for easier manipulation
-        efficiency_array = np.array(algorithmic_efficiency_multipliers_list)
+        efficiency_array = np.array(algorithmic_efficiency_multipliers)
         runtime_array = np.array(runtime_default_weeks_values)
 
         # 1. Get sorted indices for both arrays
@@ -574,26 +614,28 @@ class WorldState(BaseModel):
         if made_up_parameters.PLOT_CORRELATION:
             plot_correlation(
                 runtime_aligned_with_efficiency,
-                algorithmic_efficiency_multipliers_list,
+                algorithmic_efficiency_multipliers,
             )
 
         print(
-            f"Total alg efficiency multiplier avaliable: {np.prod(algorithmic_efficiency_multipliers_list)}"
+            f"Total alg efficiency multiplier available: {np.prod(algorithmic_efficiency_multipliers): .2e}"
         )
 
         experiments = [
             Experiment(
                 id=i,
                 made_up_parameters=made_up_parameters,
-                algorithmic_efficiency_multiplier=algorithmic_efficiency_multipliers_list[
-                    i
-                ],
+                algorithmic_efficiency_multiplier=algorithmic_efficiency_multipliers[i],
                 runtime_default_weeks=runtime_aligned_with_efficiency[i],
             )
             for i in range(made_up_parameters.N_EXPERIMENTS)
         ]
         if made_up_parameters.PRINT_TASTE_INFO:
             self.sweep_taste_and_print_info(experiments, ai_speedup_multipliers)
+
+        print(
+            f"top experimernt aems: {[e.algorithmic_efficiency_multiplier for e in sorted(experiments, key=lambda e: -e.algorithmic_efficiency_multiplier)][:10]}"
+        )
         return experiments
 
     def sweep_taste_and_print_info(
@@ -601,11 +643,14 @@ class WorldState(BaseModel):
         experiments: List[Experiment],
         ai_speedup_multipliers: AISpeedupMultipliers,
     ):
-        taste_options = np.arange(0, 1.5, 0.1).tolist()
+        taste_options = np.arange(0, 200, 20).tolist()
         for e in experiments:
             e.update_true_priority(ai_speedup_multipliers)
+        print(
+            f"true prio stats {summary_stats_str([e.true_priority for e in experiments])}"
+        )
         # experiments = sorted(experiments, key=lambda e: e.true_priority)
-        N_TRIALS = 10
+        N_TRIALS = 5
         NUM_TO_SAMPLE = MadeUpParameters().PRIORITIZATION_CADENCE
         for taste in taste_options:
             true_prio_means = []
@@ -615,6 +660,7 @@ class WorldState(BaseModel):
                     taste,
                     NUM_TO_SAMPLE,
                 )
+                # pdb.set_trace()
                 true_prio_means.append(
                     sum([e.true_priority for e in sampled_experiments]) / NUM_TO_SAMPLE
                 )
@@ -630,26 +676,30 @@ class WorldState(BaseModel):
         next_experiment = self.next_experiments.pop(0)
         next_experiment.start(self.year, self.ai_speedup_multipliers)
         self.in_progress_experiments.append(next_experiment)
-        if self.started_experiments % (self.made_up_parameters.N_EXPERIMENTS / 50) == 0:
-            print(f"Starting experiment {self.started_experiments}: {next_experiment}]")
         self.started_experiments += 1
+        if (self.started_experiments - 1) % (
+            self.made_up_parameters.N_EXPERIMENTS / 50
+        ) == 0:
+            print(
+                f"Starting experiment {self.started_experiments} at {self.year}: {next_experiment}]"
+            )
         self.in_progress_experiments = sorted(
             self.in_progress_experiments,
             key=lambda e: e.end_runtime,
         )
-        self.update_year(
-            self.year
-            + (
-                next_experiment.pre_run_work_time_in_weeks(self.ai_speedup_multipliers)
-                / 52
-            )
+        research_team_idx = self.research_team_next_free_years.index(
+            min(self.research_team_next_free_years)
         )
+        self.research_team_next_free_years[research_team_idx] += (
+            next_experiment.pre_run_work_time_in_weeks(self.ai_speedup_multipliers) / 52
+        )
+        self.update_year(min(self.research_team_next_free_years))
         # if self.made_up_parameters.DO_TIMING:
         #     print(f"Next eperiment took: {time.time() - start_time:.2f} seconds")
 
     def sample_next_experiments(self, experiments, taste, num_to_sample):
         # Assumes experiments already sorted by ascending priority
-        weights = [e.true_priority**taste for e in experiments]
+        weights = [(e.true_priority + 1) ** taste for e in experiments]
         return weighted_sample_without_replacement(
             population=experiments,
             weights=weights,
@@ -664,15 +714,19 @@ class WorldState(BaseModel):
         #     self.prospective_experiments, key=lambda e: e.true_priority
         # )
 
+        sorted_exps = sorted(
+            self.prospective_experiments, key=lambda e: -e.true_priority
+        )
         self.next_experiments = self.sample_next_experiments(
             self.prospective_experiments,
             self.ai_speedup_multipliers.research_taste,
             self.made_up_parameters.PRIORITIZATION_CADENCE,
         )
-        if self.made_up_parameters.PRINT_EXPERIMENT_INFO:
-            print(f"\ntop 10 experiments: {self.prospective_experiments[-10:]}\n")
-            print(f"some selected experiments: {self.next_experiments[:10]}\n")
-            print(f"bottom 10 experiments: {self.prospective_experiments[:10]}\n")
+        sorted_next_exps = sorted(self.next_experiments, key=lambda e: -e.true_priority)
+        if self.made_up_parameters.PRINT_CHECK_TASTE:
+            print(f"\ntop 10 experiments: {sorted_exps[:10]}\n")
+            print(f"top selected experiments: {sorted_next_exps[:10]}\n")
+            print(f"bottom 10 experiments: {sorted_exps[-10:]}\n")
         # pdb.set_trace()
         # for e in self.next_experiments:
         #     print(e)
@@ -683,7 +737,7 @@ class WorldState(BaseModel):
     def update_year(self, new_year):
         prev_year = self.year
         self.year = new_year
-        if int(new_year) > int(prev_year):
+        if math.floor(new_year) > math.floor(prev_year):
             self.print_properties()
 
     def research_step(self):
@@ -693,36 +747,57 @@ class WorldState(BaseModel):
             self.in_progress_experiments[0].end_runtime > self.year
             and self.prospective_experiments
         ):
-            self.start_next_experiment()
+            if len(self.in_progress_experiments) >= math.floor(self.max_experiments):
+                # print(self.in_progress_experiments)
+                self.year = self.in_progress_experiments[0].end_runtime
+            else:
+                self.start_next_experiment()
 
         finished_experiment = self.in_progress_experiments.pop(0)
-        self.update_year(
-            max(finished_experiment.end_runtime, self.year)
-            + (
-                finished_experiment.post_run_work_time_in_weeks(
-                    self.ai_speedup_multipliers
-                )
-                / 52
-            )
+        research_team_idx = self.research_team_next_free_years.index(
+            min(self.research_team_next_free_years)
         )
+        self.research_team_next_free_years[research_team_idx] = max(
+            self.research_team_next_free_years[research_team_idx],
+            finished_experiment.end_runtime,
+        ) + (
+            finished_experiment.post_run_work_time_in_weeks(self.ai_speedup_multipliers)
+            / 52
+        )
+        self.update_year(min(self.research_team_next_free_years))
         self.physical_compute = linear_log_interpolation(
             self.year, self.made_up_parameters.compute_schedule
         )
         self.algorithmic_efficiency *= (
             finished_experiment.algorithmic_efficiency_multiplier
         )
-        # print(self.algorithmic_efficiency)
-        # print(finished_experiment.algorithmic_efficiency_multiplier)
         self.ai_speedup_multipliers.update(
             self.effective_compute, self.made_up_parameters
         )
-        if (
-            self.finished_experiments % (self.made_up_parameters.N_EXPERIMENTS / 50)
-            == 0
-        ):
-            self.print_properties()
+        self.max_experiments = (
+            log_linear_interpolation(
+                self.algorithmic_efficiency,
+                self.made_up_parameters.max_experiments_per_team_automation_schedule,
+            )
+            * self.made_up_parameters.RESEARCH_TEAMS
+        )
         self.finished_experiments += 1
+        # print(
+        #     f"fe {finished_experiment} me {self.max_experiments} ipe {self.in_progress_experiments}"
+        # )
 
+        if (self.finished_experiments - 1) % (
+            self.made_up_parameters.N_EXPERIMENTS / 50
+        ) == 0:
+            print(
+                f"Finished experiment {self.finished_experiments} at {self.year}: {finished_experiment}]"
+            )
+            self.print_properties()
+
+        if self.made_up_parameters.PRINT_EXPERIMENT_INFO:
+            print(
+                f"Finished experiment {self.finished_experiments} at {self.year}: {finished_experiment}]"
+            )
         # update AI multipliers
 
     def is_done(self):
@@ -731,15 +806,16 @@ class WorldState(BaseModel):
             <= self.made_up_parameters.STOP_EXPERIMENTS
             or self.year >= self.made_up_parameters.STOP_YEAR
             or self.effective_compute > self.made_up_parameters.STOP_EC
+            or self.algorithmic_efficiency > self.made_up_parameters.STOP_AE
         )
 
     @property
     def effective_compute(self):
         return self.algorithmic_efficiency * self.physical_compute
 
-    def print_properties(self, true_prio_mean=None):
+    def print_properties(self):
         print(
-            f"year: {self.year} alg eff {self.algorithmic_efficiency} eff compute {self.effective_compute} started_experiments: {self.started_experiments} finished_experiments: {self.finished_experiments} phys compute {self.physical_compute} ai speedup multipliers: {self.ai_speedup_multipliers} next experiments true prio mean {true_prio_mean}"
+            f"\nyear: {self.year} alg eff {self.algorithmic_efficiency: .2e} eff compute {self.effective_compute: .2e} started_experiments: {self.started_experiments} finished_experiments: {self.finished_experiments} phys compute {self.physical_compute: .2e} ai speedup multipliers: {self.ai_speedup_multipliers}"
         )
 
     def get_properties_dict(self):
@@ -751,6 +827,9 @@ class WorldState(BaseModel):
             "started_experiments": self.started_experiments,
             "finished_experiments": self.finished_experiments,
             "software_design_multiplier": self.ai_speedup_multipliers.software_design,
+            "software_programming_multiplier": self.ai_speedup_multipliers.software_programming,
+            "experiment_analysis_multiplier": self.ai_speedup_multipliers.experiment_analysis,
+            "research_taste": self.ai_speedup_multipliers.research_taste,
         }
 
 
@@ -764,6 +843,46 @@ class SimResult(BaseModel):
         # Convert to DataFrame
         df = pd.DataFrame(data)
 
+        # Ensure the DataFrame is sorted by year
+        df.sort_values("year", inplace=True)
+
+        # Calculate the difference in 'algorithmic efficiency' and 'year' over 50 rows
+        NUM_PERIODS = 100
+        df["efficiency_change"] = df["algorithmic efficiency"].diff(periods=NUM_PERIODS)
+        df["year_change"] = df["year"].diff(periods=NUM_PERIODS)
+
+        # Calculate the ratio of 'algorithmic efficiency' over 10 rows for the doubling time calculation
+        df["efficiency_ratio"] = df["algorithmic efficiency"] / df[
+            "algorithmic efficiency"
+        ].shift(NUM_PERIODS)
+
+        # Now calculate the doubling time using these 100-row horizon differences
+        # Ensure to handle division by zero or log of zero by replacing with NaN or infinity as appropriate
+        df["doubling_time_100_row"] = np.where(
+            df["efficiency_ratio"] > 0,
+            (df["year_change"] * np.log(2)) / np.log(df["efficiency_ratio"]),
+            np.nan,  # Use NaN or another placeholder for cases where calculation cannot be performed
+        )
+
+        # pdb.set_trace()
+
+        # # Calculate the year difference (Δt)
+        # df["delta_t"] = df["year"].diff()
+
+        # # Calculate the ratio of subsequent algorithmic efficiencies
+        # df["efficiency_ratio"] = df["algorithmic efficiency"].diff() / df[
+        #     "algorithmic efficiency"
+        # ].shift(1)
+
+        # # Calculate the instantaneous growth rate r for each interval
+        # df["growth_rate"] = np.log(df["efficiency_ratio"] + 1) / df["delta_t"]
+
+        # # Calculate the doubling time Td for each interval
+        # df["doubling_time"] = np.log(2) / df["growth_rate"]
+
+        # # Handling the first row which will have NaN values due to the diff operation
+        # df.fillna(value={"doubling_time": np.nan}, inplace=True)
+
         # Convert 'year' to a proper datetime type if needed (optional, for better x-axis formatting)
         # df["year"] = pd.to_datetime(df["year"], format="%Y.%f")
 
@@ -774,6 +893,9 @@ class SimResult(BaseModel):
             "started_experiments",
             "finished_experiments",
             "software_design_multiplier",
+            "software_programming_multiplier",
+            "experiment_analysis_multiplier",
+            "research_taste",
         ]  # List all properties
 
         # Plotting with log scale and x-axis adjustment
@@ -819,6 +941,33 @@ class SimResult(BaseModel):
 
         plt.legend()  # Show legend to identify each line
         plt.tight_layout()
+        plt.show()
+        plt.close()
+
+        plt.figure(figsize=(10, 6))  # Adjust figure size as needed
+        ax = plt.gca()  # Get the current Axes instance
+
+        # Plot only the doubling time
+        df.plot(
+            x="year",
+            y="doubling_time_100_row",
+            ax=ax,
+            label="Doubling Time",
+            color="blue",
+        )
+
+        # Setting labels and title for clarity
+        plt.xlabel("Year")
+        plt.ylabel("Doubling Time (years)")
+        plt.title("Algorithmic Efficiency Doubling Time Over Years")
+
+        # Setting y-axis scale to linear or log based on the range of doubling times
+        # Uncomment the following line if you prefer a logarithmic scale
+        # ax.set_yscale('log')
+
+        plt.legend()  # Show legend
+        plt.grid(True)  # Add grid for better readability
+        plt.tight_layout()  # Adjust layout to make room for the labels
         plt.show()
 
 
