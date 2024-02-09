@@ -1,5 +1,7 @@
 Make usable:
 - Make automation schedues readable from a spreadsheet a la Epoch (and ideally other important variables)
+- Make lognormals estimated from p5/95 rather than mu/sigma (so people can enter based on their intuitions. Say to change stuff with caustion (especially distribution of AEMs) since it's set to roughly fit with historical no automation data)
+- Write GDoc explainer
 - Add command line options
 - Log to CSV
 
