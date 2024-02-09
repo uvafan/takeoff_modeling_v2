@@ -43,6 +43,8 @@ class MadeUpParameters(BaseModel):
         2035: 5e31,
     }
 
+    # See https://squigglehub.org/models/takeoff-modeling-stuff/time-length-modeling-options for viewing some relevant distributions
+
     # Experiment design
     experiment_design_default_weeks_lognormal_mu: float = 0.2
     experiment_design_default_weeks_lognormal_sigma: float = 1
