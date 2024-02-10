@@ -20,6 +20,19 @@ import math
 RANDOM_SEED = 42
 
 
+def p5_and_95_to_mu_and_sigma(p5_value, p95_value):
+    # Convert percentiles to z-scores of the standard normal distribution
+    z5 = stats.norm.ppf(0.05)
+    z95 = stats.norm.ppf(0.95)
+
+    # Solve for sigma and mu of the log-normal distribution
+    # Using the equations derived from the log-normal CDF and the given percentiles
+    sigma = (np.log(p95_value) - np.log(p5_value)) / (z95 - z5)
+    mu = np.log(p5_value) - z5 * sigma
+
+    return mu, sigma
+
+
 def summary_stats_str(nums: list[float]):
     mean = statistics.mean(nums)
     median = statistics.median(nums)
@@ -33,6 +46,9 @@ def summary_stats_str(nums: list[float]):
 
 class MadeUpParameters(BaseModel):
     initial_year: float = 2024.0
+
+    # Physical compute schedule
+
     compute_schedule: Dict[float, float] = {
         2024.0: 9e25,
         2025: 2.5e26,
@@ -43,11 +59,7 @@ class MadeUpParameters(BaseModel):
         2035: 5e31,
     }
 
-    # See https://squigglehub.org/models/takeoff-modeling-stuff/time-length-modeling-options for viewing some relevant distributions
-
-    # Experiment design
-    experiment_design_default_weeks_lognormal_mu: float = 0.2
-    experiment_design_default_weeks_lognormal_sigma: float = 1
+    # Speed automation schedules. Mapping effective compute -> speedup
 
     experiment_design_automation_schedule: Dict[float, float] = {
         9e25: 1,
@@ -59,10 +71,6 @@ class MadeUpParameters(BaseModel):
         1e35: 1000,
     }
 
-    # Software design
-    software_design_default_weeks_lognormal_mu: float = 0.3
-    software_design_default_weeks_lognormal_sigma: float = 1
-
     software_design_automation_schedule: Dict[float, float] = {
         9e25: 1,
         1e27: 1.02,
@@ -72,10 +80,6 @@ class MadeUpParameters(BaseModel):
         1e33: 25,
         1e35: 100,
     }
-
-    # Software programming
-    software_programming_default_weeks_lognormal_mu: float = 1
-    software_programming_default_weeks_lognormal_sigma: float = 1
 
     software_programming_automation_schedule: Dict[float, float] = {
         9e25: 1,
@@ -88,7 +92,6 @@ class MadeUpParameters(BaseModel):
     }
 
     initial_experiment_monitoring_efficiency: float = 1
-    # Experiment monitoring
     experiment_monitoring_efficiency_automation_schedule: Dict[float, float] = {
         9e25: 1,
         1e27: 0.98,
@@ -101,16 +104,6 @@ class MadeUpParameters(BaseModel):
         # 1e26: 1,
     }
 
-    # Wall clock runtime with default monitoring
-    runtime_default_weeks_lognormal_mu: float = 1.5
-    runtime_default_weeks_lognormal_sigma: float = 0.9
-    runtime_hardness_correlation_level: float = 0.6  # lower is more correlated
-
-    # Experiment results analysis
-    experiment_analysis_default_weeks_lognormal_mu: float = 0.5
-    experiment_analysis_default_weeks_lognormal_sigma: float = 1
-
-    # TODO: make real. effective compute -> speedup
     experiment_analysis_automation_schedule: Dict[float, float] = {
         9e25: 1,
         1e27: 1.05,
@@ -121,19 +114,91 @@ class MadeUpParameters(BaseModel):
         1e35: 80,
     }
 
-    # Research taste. TODO make real. Make a taste visualization thing
-    T_initial: float = 50
+    # See https://squigglehub.org/models/takeoff-modeling-stuff/time-length-modeling-options for viewing some relevant distributions
+    # Distribution of task times
+    # TODO change to 5/95
+
+    # Experiment design
+    experiment_design_default_weeks_lognormal_mu: float = 0.2
+    experiment_design_default_weeks_lognormal_sigma: float = 1
+
+    # Software design
+    software_design_default_weeks_lognormal_mu: float = 0.3
+    software_design_default_weeks_lognormal_sigma: float = 1
+
+    # Software programming
+    software_programming_default_weeks_lognormal_mu: float = 1
+    software_programming_default_weeks_lognormal_sigma: float = 1
+
+    runtime_hardness_correlation_level: float = 0.6  # lower is more correlated
+
+    # Experiment results analysis
+    experiment_analysis_default_weeks_lognormal_mu: float = 0.5
+    experiment_analysis_default_weeks_lognormal_sigma: float = 1
+
+    # ----- BEGIN VERY IMPORTANT PARAMS -----
+
+    DO_TOP_K_TASTE: bool = True
+
+    # # Research taste
+    # T_initial: float = 50
+    # research_taste_automation_schedule: Dict[float, float] = {
+    #     9e25: T_initial,
+    #     1e27: 51,
+    #     1e28: 53,
+    #     1e30: 65,
+    #     3e31: 80,
+    #     1e33: 120,
+    #     1e35: 150,
+    #     1e40: 160,
+    #     # 10e25: T_initial,
+    # }
+
+    # Represents the fraction of experiments that are randomly looked at before choosing the top one
+    T_initial: float = 0.0025
     research_taste_automation_schedule: Dict[float, float] = {
         9e25: T_initial,
-        1e27: 51,
-        1e28: 53,
-        1e30: 65,
-        3e31: 80,
-        1e33: 120,
-        1e35: 150,
-        1e40: 160,
+        1e27: 0.003,
+        1e28: 0.005,
+        1e30: 0.01,
+        3e31: 0.02,
+        1e33: 0.04,
+        1e35: 0.06,
+        2e37: 0.08,
+        1e40: 0.1,
         # 10e25: T_initial,
     }
+
+    # T_initial: float = 3
+    # research_taste_automation_schedule: Dict[float, float] = {
+    #     9e25: T_initial,
+    #     1e27: 3,
+    #     1e28: 5,
+    #     1e30: 10,
+    #     3e31: 20,
+    #     1e33: 40,
+    #     1e35: 60,
+    #     2e37: 120,
+    #     1e40: 240,
+    #     # 10e25: T_initial,
+    # }
+
+    # T_initial: float = 3
+    # research_taste_automation_schedule: Dict[float, float] = {
+    #     9e25: T_initial,
+    #     1e27: 3,
+    #     1e28: 4,
+    #     1e30: 6,
+    #     3e31: 10,
+    #     1e33: 20,
+    #     1e35: 30,
+    #     1e40: 40,
+    #     # 10e25: T_initial,
+    # }
+
+    # Wall clock runtime with default monitoring in weeks, 5th and 95th percentiles
+    runtime_default_weeks_p5: float = 1
+    runtime_default_weeks_p95: float = 20
 
     # How many research teams and experimets per team
     RESEARCH_TEAMS: int = 10
@@ -144,34 +209,33 @@ class MadeUpParameters(BaseModel):
         1e10: 1,
     }
 
-    # Alg efficieny multiplier distribution. Got from playing in Squiggle
-    # ae_beta_a: float = 1
-    # ae_beta_b: float = 20
-    # ae_beta_exp: float = 2
-    # ae_beta_a: float = 0.01
-    # ae_beta_b: float = 0.7
-    # ae_beta_exp: float = 2
-    ae_lognormal_mu: float = -6.4
-    ae_lognormal_sigma: float = 1.7
+    # Alg efficieny multiplier distribution. Very sensitive to changes which can screw things up
+    # so make sure to check no automation behavior. 5th and 95th percentiles
+    # Make sure initial pool of AEMs multipoies to something reasonable
+    algorithmic_efficiency_multiplier_p5: float = 0.0001
+    algorithmic_efficiency_multiplier_p95: float = 0.015
 
-    N_EXPERIMENTS: int = 5000
+    # ---- END VERY IMPORTANT PARAMS -----
+
+    N_EXPERIMENTS: int = 10000
 
     # Stop simulation when there are X experiments left, or have gotten past year Y, or effective compute level Z
     STOP_EXPERIMENTS: int = 0
     STOP_YEAR: float = 2040
     STOP_EC: float = 1e50
-    STOP_AE: float = 1e10
+    STOP_AE: float = 1e12
 
     # printing stuff
-    PRINT_TIMING: bool = False
+    PRINT_TIMING: bool = True
     PRINT_EXPERIMENT_INFO: bool = False
-    PRINT_TASTE_INFO: bool = True
+    PRINT_TASTE_INFO: bool = False
     PLOT_CORRELATION: bool = False
     PRINT_CHECK_TASTE: bool = False
 
     # How often to do experiment prioritization
     PRIORITIZATION_CADENCE: int = 50
     DO_AUTOMATION: bool = True
+    DO_NO_AUTOMATION_FIRST: bool = True
 
     # How many simluations to run
     N_SIMS: int = 1
@@ -417,6 +481,7 @@ class Experiment(BaseModel):
     algorithmic_efficiency_multiplier: float
     true_priority: float = -1
     end_runtime: float = -1
+    start_runtime: float = -1
 
     def __init__(
         self,
@@ -437,10 +502,6 @@ class Experiment(BaseModel):
                 made_up_parameters.software_programming_default_weeks_lognormal_mu,
                 made_up_parameters.software_programming_default_weeks_lognormal_sigma,
             ),
-            # runtime_default_weeks=np.random.lognormal(
-            #     made_up_parameters.runtime_default_weeks_lognormal_mu,
-            #     made_up_parameters.runtime_default_weeks_lognormal_sigma,
-            # ),
             experiment_analysis_speed_in_weeks=np.random.lognormal(
                 made_up_parameters.experiment_analysis_default_weeks_lognormal_mu,
                 made_up_parameters.experiment_analysis_default_weeks_lognormal_sigma,
@@ -470,9 +531,11 @@ class Experiment(BaseModel):
         )
 
     def update_true_priority(self, speedup_multipliers: AISpeedupMultipliers):
-        time_to_complete = self.pre_run_work_time_in_weeks(
-            speedup_multipliers
-        ) + self.post_run_work_time_in_weeks(speedup_multipliers)
+        time_to_complete = (
+            self.pre_run_work_time_in_weeks(speedup_multipliers)
+            # + self.runtime_in_weeks(speedup_multipliers)
+            + self.post_run_work_time_in_weeks(speedup_multipliers)
+        )
         # Copying prioritization advice from ChatGPT https://chat.openai.com/share/3628828c-edd1-4b6c-97d7-9c2470a2bdbe
         self.true_priority = (
             self.algorithmic_efficiency_multiplier - 1
@@ -480,6 +543,9 @@ class Experiment(BaseModel):
 
     def start(self, year: float, speedup_multipliers: AISpeedupMultipliers):
         self.start_year = year
+        self.start_runtime = (
+            self.start_year + self.pre_run_work_time_in_weeks(speedup_multipliers) / 52
+        )
         self.end_runtime = (
             self.start_year
             + (
@@ -493,6 +559,8 @@ class Experiment(BaseModel):
         return (
             f"(algorithmic_efficiency_multiplier={self.algorithmic_efficiency_multiplier}, "
             f"true_priority={self.true_priority}, "
+            f"start_year={self.start_year}, "
+            f"start_runtime={self.start_runtime}, "
             f"end_runtime={self.end_runtime})"
         )
 
@@ -565,19 +633,27 @@ class WorldState(BaseModel):
         # algorithmic_efficiency_multipliers_list = (
         #     algorithmic_efficiency_multipliers.tolist()
         # )
+        ae_mu, ae_sigma = p5_and_95_to_mu_and_sigma(
+            made_up_parameters.algorithmic_efficiency_multiplier_p5,
+            made_up_parameters.algorithmic_efficiency_multiplier_p95,
+        )
 
         algorithmic_efficiency_multipliers = (
             np.random.lognormal(
-                mean=made_up_parameters.ae_lognormal_mu,
-                sigma=made_up_parameters.ae_lognormal_sigma,
+                mean=ae_mu,
+                sigma=ae_sigma,
                 size=made_up_parameters.N_EXPERIMENTS,
             )
             + 1
         )
 
+        runtime_mu, runtime_sigma = p5_and_95_to_mu_and_sigma(
+            made_up_parameters.runtime_default_weeks_p5,
+            made_up_parameters.runtime_default_weeks_p95,
+        )
         runtime_default_weeks_values = np.random.lognormal(
-            mean=made_up_parameters.runtime_default_weeks_lognormal_mu,
-            sigma=made_up_parameters.runtime_default_weeks_lognormal_sigma,
+            mean=runtime_mu,
+            sigma=runtime_sigma,
             size=made_up_parameters.N_EXPERIMENTS,
         )
 
@@ -633,7 +709,9 @@ class WorldState(BaseModel):
             for i in range(made_up_parameters.N_EXPERIMENTS)
         ]
         if made_up_parameters.PRINT_TASTE_INFO:
-            self.sweep_taste_and_print_info(experiments, ai_speedup_multipliers)
+            self.sweep_taste_and_print_info(
+                experiments, ai_speedup_multipliers, made_up_parameters
+            )
 
         print(
             f"top experimernt aems: {[e.algorithmic_efficiency_multiplier for e in sorted(experiments, key=lambda e: -e.algorithmic_efficiency_multiplier)][:10]}"
@@ -644,8 +722,10 @@ class WorldState(BaseModel):
         self,
         experiments: List[Experiment],
         ai_speedup_multipliers: AISpeedupMultipliers,
+        made_up_parameters: MadeUpParameters,
     ):
-        taste_options = np.arange(0, 200, 20).tolist()
+        # taste_options = np.arange(0, 200, 20).tolist()
+        taste_options = np.arange(0.005, 0.1, 0.01).tolist()
         for e in experiments:
             e.update_true_priority(ai_speedup_multipliers)
         print(
@@ -661,6 +741,7 @@ class WorldState(BaseModel):
                     deepcopy(experiments),
                     taste,
                     NUM_TO_SAMPLE,
+                    made_up_parameters.DO_TOP_K_TASTE,
                 )
                 # pdb.set_trace()
                 true_prio_means.append(
@@ -671,7 +752,7 @@ class WorldState(BaseModel):
             )
 
     def start_next_experiment(self):
-        # start_time = time.time()
+        start_time = time.time()
         # print(self.next_experiments)
         if not self.next_experiments:
             self.select_next_experiments()
@@ -696,17 +777,42 @@ class WorldState(BaseModel):
             next_experiment.pre_run_work_time_in_weeks(self.ai_speedup_multipliers) / 52
         )
         self.update_year(min(self.research_team_next_free_years))
-        # if self.made_up_parameters.DO_TIMING:
+        # if self.made_up_parameters.PRINT_TIMING:
         #     print(f"Next eperiment took: {time.time() - start_time:.2f} seconds")
 
-    def sample_next_experiments(self, experiments, taste, num_to_sample):
-        # Assumes experiments already sorted by ascending priority
-        weights = [(e.true_priority + 1) ** taste for e in experiments]
-        return weighted_sample_without_replacement(
-            population=experiments,
-            weights=weights,
-            k=min(num_to_sample, len(experiments)),
-        )
+    def sample_next_experiments(
+        self,
+        experiments: List[Experiment],
+        taste,
+        num_to_sample,
+        do_top_k_taste=None,
+    ):
+        s = time.time()
+        if do_top_k_taste is None:
+            do_top_k_taste = self.made_up_parameters.DO_TOP_K_TASTE
+        if do_top_k_taste:
+            sampled_experiments = []
+            for _ in range(num_to_sample):
+                to_sample = max(min(int(taste * len(experiments)), len(experiments)), 1)
+                # print(to_sample)
+
+                sample = random.sample(
+                    experiments,
+                    to_sample,
+                )
+
+                highest_priority_item = max(sample, key=lambda e: e.true_priority)
+                sampled_experiments.append(highest_priority_item)
+                experiments.remove(highest_priority_item)
+            print(f"Selecting next eperiments took: {time.time() - s:.2f} seconds")
+            return sampled_experiments
+        else:
+            weights = [(e.true_priority + 1) ** taste for e in experiments]
+            return weighted_sample_without_replacement(
+                population=experiments,
+                weights=weights,
+                k=min(num_to_sample, len(experiments)),
+            )
 
     def select_next_experiments(self):
         start_time = time.time()
@@ -719,6 +825,8 @@ class WorldState(BaseModel):
         sorted_exps = sorted(
             self.prospective_experiments, key=lambda e: -e.true_priority
         )
+        # if self.made_up_parameters.PRINT_TIMING:
+        #     print(f"Updating priorites took: {time.time() - start_time:.2f} seconds")
         self.next_experiments = self.sample_next_experiments(
             self.prospective_experiments,
             self.ai_speedup_multipliers.research_taste,
@@ -733,8 +841,6 @@ class WorldState(BaseModel):
         # for e in self.next_experiments:
         #     print(e)
         #     self.prospective_experiments.remove(e)
-        if self.made_up_parameters.PRINT_TIMING:
-            print(f"Updating priorites took: {time.time() - start_time:.2f} seconds")
 
     def update_year(self, new_year):
         prev_year = self.year
@@ -743,13 +849,19 @@ class WorldState(BaseModel):
             self.print_properties()
 
     def research_step(self):
+        s = time.time()
         if not self.in_progress_experiments and self.prospective_experiments:
             self.start_next_experiment()
         while (
             self.in_progress_experiments[0].end_runtime > self.year
             and self.prospective_experiments
         ):
-            if len(self.in_progress_experiments) >= math.floor(self.max_experiments):
+            num_running_experiments = len(
+                [e for e in self.in_progress_experiments if e.start_runtime < self.year]
+            )
+            # print(num_running_experiments)
+            # print(len(self.in_progress_experiments))
+            if num_running_experiments >= math.floor(self.max_experiments):
                 # print(self.in_progress_experiments)
                 self.year = self.in_progress_experiments[0].end_runtime
             else:
@@ -787,6 +899,9 @@ class WorldState(BaseModel):
         # print(
         #     f"fe {finished_experiment} me {self.max_experiments} ipe {self.in_progress_experiments}"
         # )
+
+        # if self.made_up_parameters.PRINT_TIMING:
+        #     print(f"research step took {time.time() - s:.2f} seconds")
 
         if (self.finished_experiments - 1) % (
             self.made_up_parameters.N_EXPERIMENTS / 50
@@ -836,14 +951,12 @@ class WorldState(BaseModel):
 
 
 class SimResult(BaseModel):
-    timesteps: List[WorldState] = Field(default_factory=list)
+    timesteps: List[Dict] = Field(default_factory=list)
+    name: str = "with automation"
 
     def print_results(self):
-        self.timesteps[-1].print_properties()
-        data = [t.get_properties_dict() for t in self.timesteps]
-
         # Convert to DataFrame
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(self.timesteps)
 
         # Ensure the DataFrame is sorted by year
         df.sort_values("year", inplace=True)
@@ -894,7 +1007,7 @@ class SimResult(BaseModel):
             "physical_compute",
             "started_experiments",
             "finished_experiments",
-            "software_design_multiplier",
+            # "software_design_multiplier",
             "software_programming_multiplier",
             "experiment_analysis_multiplier",
             "research_taste",
@@ -973,20 +1086,149 @@ class SimResult(BaseModel):
         plt.show()
 
 
+def process_df(df: pd.DataFrame):
+    # Ensure the DataFrame is sorted by year
+    df.sort_values("year", inplace=True)
+
+    # Calculate the difference in 'algorithmic efficiency' and 'year' over 50 rows
+    NUM_PERIODS = 100
+    df["efficiency_change"] = df["algorithmic efficiency"].diff(periods=NUM_PERIODS)
+    df["year_change"] = df["year"].diff(periods=NUM_PERIODS)
+
+    # Calculate the ratio of 'algorithmic efficiency' over 10 rows for the doubling time calculation
+    df["efficiency_ratio"] = df["algorithmic efficiency"] / df[
+        "algorithmic efficiency"
+    ].shift(NUM_PERIODS)
+
+    # Now calculate the doubling time using these 100-row horizon differences
+    # Ensure to handle division by zero or log of zero by replacing with NaN or infinity as appropriate
+    df["doubling_time_100_row"] = np.where(
+        df["efficiency_ratio"] > 0,
+        (df["year_change"] * np.log(2)) / np.log(df["efficiency_ratio"]),
+        np.nan,  # Use NaN or another placeholder for cases where calculation cannot be performed
+    )
+
+    return df
+
+
 class AllSimResults(BaseModel):
     sim_results: List[SimResult] = Field(default_factory=list)
 
     def print_results(self):
-        return
-        for sim_result in self.sim_results:
-            sim_result.print_results()
+        data_a = self.sim_results[0].timesteps
+        data_b = self.sim_results[1].timesteps
+
+        # Convert to DataFrame
+        df_a = process_df(pd.DataFrame(data_a))
+        df_b = process_df(pd.DataFrame(data_b))
+
+        properties = [
+            "algorithmic efficiency",
+            "effective_compute",
+            "physical_compute",
+            # "started_experiments",
+            # "finished_experiments",
+            # "software_design_multiplier",
+            "software_programming_multiplier",
+            "experiment_analysis_multiplier",
+            # "research_taste",
+        ]  # List all properties
+
+        # Initialize a single figure and axis for plotting
+        plt.figure(figsize=(12, 8))  # Adjust figure size as needed
+        ax = (
+            plt.gca()
+        )  # Get the current Axes instance on the current figure matching the given keyword args, or create one.
+
+        # Plot each property on the same axis
+        for prop in properties:
+            df_a.plot(
+                x="year",
+                y=prop,
+                ax=ax,
+                label=f"{prop} (no automation)",
+                logy=True,
+                linestyle="-",
+            )
+            df_b.plot(
+                x="year",
+                y=prop,
+                ax=ax,
+                label=f"{prop} (automation)",
+                logy=True,
+                linestyle="-",
+            )
+
+        # Set labels and title
+        plt.xlabel("Year")
+        plt.ylabel("Value")
+        plt.title("Properties Over Time")
+
+        # Optionally adjust the x-axis to cover only the years mentioned, if necessary
+        min_year, max_year = df_a["year"].min(), max(
+            df_a["year"].max(), df_b["year"].max()
+        )
+        ax.set_xlim(left=min_year, right=max_year)
+
+        plt.legend()  # Show legend to identify each line
+        plt.tight_layout()
+        plt.show()
+        plt.close()
+
+        plt.figure(figsize=(10, 6))  # Adjust figure size as needed
+        ax = plt.gca()  # Get the current Axes instance
+
+        # Plot only the doubling time
+        df_a.plot(
+            x="year",
+            y="doubling_time_100_row",
+            ax=ax,
+            label=f"Doubling time (no automation)",
+            linestyle="-",
+        )
+        df_b.plot(
+            x="year",
+            y="doubling_time_100_row",
+            ax=ax,
+            label=f"Doubling (automation)",
+            linestyle="-",
+        )
+
+        # Setting labels and title for clarity
+        plt.xlabel("Year")
+        plt.ylabel("Doubling Time (years)")
+
+        plt.title("Algorithmic Efficiency Doubling Time Over Years")
+
+        plt.legend()  # Show legend
+        plt.grid(True)  # Add grid for better readability
+        plt.tight_layout()  # Adjust layout to make room for the labels
+        plt.show()
 
 
 def main():
-    random.seed(42)
+    random.seed(RANDOM_SEED)
 
     s = time.time()
     all_sim_results = AllSimResults()
+
+    if MadeUpParameters().DO_NO_AUTOMATION_FIRST:
+        made_up_parameters = MadeUpParameters(DO_AUTOMATION=False)
+        sim_result = SimResult(name="no automation")
+        world_state = WorldState(
+            made_up_parameters,
+            AISpeedupMultipliers(research_taste=made_up_parameters.T_initial),
+        )
+        sim_result.timesteps.append(world_state.get_properties_dict())
+
+        while not world_state.is_done():
+            world_state.research_step()
+            s = time.time()
+            # TODO only add the data that I want to collect, whole thing is wha'ts being slow
+            sim_result.timesteps.append(world_state.get_properties_dict())
+
+        # sim_result.print_results()
+        all_sim_results.sim_results.append(deepcopy(sim_result))
 
     for _ in tqdm(range(MadeUpParameters().N_SIMS)):
         made_up_parameters = MadeUpParameters()
@@ -995,13 +1237,15 @@ def main():
             made_up_parameters,
             AISpeedupMultipliers(research_taste=made_up_parameters.T_initial),
         )
-        sim_result.timesteps.append(deepcopy(world_state))
+        sim_result.timesteps.append(world_state.get_properties_dict())
 
         while not world_state.is_done():
             world_state.research_step()
-            sim_result.timesteps.append(deepcopy(world_state))
+            s = time.time()
+            # TODO only add the data that I want to collect, whole thing is wha'ts being slow
+            sim_result.timesteps.append(world_state.get_properties_dict())
 
-        sim_result.print_results()
+        # sim_result.print_results()
         all_sim_results.sim_results.append(deepcopy(sim_result))
 
     print(
