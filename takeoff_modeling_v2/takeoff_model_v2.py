@@ -140,20 +140,6 @@ class MadeUpParameters(BaseModel):
 
     DO_TOP_K_TASTE: bool = True
 
-    # # Research taste
-    # T_initial: float = 50
-    # research_taste_automation_schedule: Dict[float, float] = {
-    #     9e25: T_initial,
-    #     1e27: 51,
-    #     1e28: 53,
-    #     1e30: 65,
-    #     3e31: 80,
-    #     1e33: 120,
-    #     1e35: 150,
-    #     1e40: 160,
-    #     # 10e25: T_initial,
-    # }
-
     # Represents the fraction of experiments that are randomly looked at before choosing the top one
     T_initial: float = 0.0025
     research_taste_automation_schedule: Dict[float, float] = {
@@ -169,33 +155,6 @@ class MadeUpParameters(BaseModel):
         # 10e25: T_initial,
     }
 
-    # T_initial: float = 3
-    # research_taste_automation_schedule: Dict[float, float] = {
-    #     9e25: T_initial,
-    #     1e27: 3,
-    #     1e28: 5,
-    #     1e30: 10,
-    #     3e31: 20,
-    #     1e33: 40,
-    #     1e35: 60,
-    #     2e37: 120,
-    #     1e40: 240,
-    #     # 10e25: T_initial,
-    # }
-
-    # T_initial: float = 3
-    # research_taste_automation_schedule: Dict[float, float] = {
-    #     9e25: T_initial,
-    #     1e27: 3,
-    #     1e28: 4,
-    #     1e30: 6,
-    #     3e31: 10,
-    #     1e33: 20,
-    #     1e35: 30,
-    #     1e40: 40,
-    #     # 10e25: T_initial,
-    # }
-
     # Wall clock runtime with default monitoring in weeks, 5th and 95th percentiles
     runtime_default_weeks_p5: float = 1
     runtime_default_weeks_p95: float = 20
@@ -205,8 +164,8 @@ class MadeUpParameters(BaseModel):
 
     # alg efficiency -> max experiments per team
     max_experiments_per_team_automation_schedule: Dict[float, float] = {
-        1: 1,
-        1e10: 1,
+        1: 3,
+        1e10: 3,
     }
 
     # Alg efficieny multiplier distribution. Very sensitive to changes which can screw things up
